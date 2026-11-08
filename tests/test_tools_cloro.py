@@ -19,7 +19,8 @@ GOOGLE = {
             {"position": 2, "title": "Unresolved", "link": "", "snippet": "No link."},
             {"position": 3, "title": "Redirect", "link": "https://www.google.com/goto?x=1", "snippet": "R."},
             {"position": 4, "title": "Second", "link": "https://example.org/b", "snippet": "B."},
-        ]
+        ],
+        "aioverview": {"text": "An overview.", "sources": [{"label": "Src", "url": "https://example.net"}]},
     },
 }
 
@@ -70,6 +71,18 @@ def test_google_search(post):
     assert kwargs["headers"]["Authorization"] == "Bearer k"
     assert [d.metadata["url"] for d in docs] == ["https://example.com/a", "https://example.org/b"]
     assert docs[0].text == "First\nhttps://example.com/a\nA."
+
+
+@patch("llama_index.tools.cloro.base.httpx.post")
+def test_google_search_with_ai_overview(post):
+    post.return_value = _response(200, GOOGLE)
+    docs = CloroToolSpec(api_key="k", include_ai_overview=True).google_search("q", max_results=1)
+
+    assert post.call_args.kwargs["json"] == {"query": "q", "country": "US", "include": {"aioverview": True}}
+    assert len(docs) == 2
+    assert docs[0].text == "An overview.\n\nSources:\n- Src: https://example.net"
+    assert docs[0].metadata["engine"] == "google_ai_overview"
+    assert docs[1].metadata["url"] == "https://example.com/a"
 
 
 @patch("llama_index.tools.cloro.base.httpx.post")

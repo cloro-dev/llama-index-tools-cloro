@@ -6,7 +6,7 @@ engine or an AI assistant for a query and a country, and returns the result as s
 
 | Tool | cloro endpoint | Returns | Credits per call |
 |---|---|---|--:|
-| `google_search` | `POST /v1/monitor/google` | One Document per Google organic result: title, URL and snippet | 5 |
+| `google_search` | `POST /v1/monitor/google` | One Document per Google organic result: title, URL and snippet. With `include_ai_overview=True`, the Google AI Overview and its sources first. | 5, or 7 with the AI Overview |
 | `google_ai_mode` | `POST /v1/monitor/aimode` | The Google AI Mode answer as Markdown, with its sources | 6 |
 | `bing_ai_mode` | `POST /v1/monitor/bing/aimode` | The Bing AI Mode (Copilot Search in Bing) answer, with its sources | 6 |
 | `chatgpt` | `POST /v1/monitor/chatgpt` | The ChatGPT answer that users see, with its sources | 7 |
@@ -32,7 +32,7 @@ from llama_index.core.agent.workflow import FunctionAgent
 from llama_index.llms.openai import OpenAI
 from llama_index.tools.cloro import CloroToolSpec
 
-cloro = CloroToolSpec(country="US")
+cloro = CloroToolSpec(country="US", include_ai_overview=True)
 agent = FunctionAgent(
     tools=cloro.to_tool_list(),
     llm=OpenAI(model="gpt-4.1"),
@@ -71,17 +71,19 @@ print(answer.metadata["sources"])
 Each tool returns a list of `Document`. The text is what the agent reads:
 
 - `google_search`: one Document per result. The text is the title, the URL and the snippet. `metadata` has `title`,
-  `url` and `position`. Results with an empty link or a Google redirect link are skipped.
+  `url` and `position`. Results with an empty link or a Google redirect link are skipped. With the AI Overview
+  turned on, the first Document is the AI Overview and its sources, with `metadata["engine"] == "google_ai_overview"`.
 - The AI answer tools: one Document. The text is the answer as Markdown, then a "Sources" list. `metadata` has
   `engine`, `prompt` and `sources` (a list of `title` and `url`).
 
 ### Parameters
 
-`CloroToolSpec(api_key=None, country="US", timeout=180.0)`
+`CloroToolSpec(api_key=None, country="US", timeout=180.0, include_ai_overview=False)`
 
 - `api_key`: the cloro API key. Defaults to the `CLORO_API_KEY` environment variable.
 - `country`: ISO 3166-1 alpha-2 country code for the search location. Each tool also takes `country` per call.
 - `timeout`: request timeout in seconds. An AI answer can take 15 to 60 seconds.
+- `include_ai_overview`: make `google_search` also return the Google AI Overview. It costs 2 more credits per search.
 
 ## Limits
 

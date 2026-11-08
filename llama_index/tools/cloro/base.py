@@ -38,7 +38,7 @@ class CloroToolSpec(BaseToolSpec):
     """
     cloro tool spec.
 
-    Live Google search results, and the answers that Google AI Mode, Bing AI Mode,
+    Live Google search results with the optional Google AI Overview, and the answers that Google AI Mode, Bing AI Mode,
     ChatGPT and Gemini give to a prompt, with the sources they cite. Each call
     loads the live page for the country you choose and uses cloro credits.
     """
@@ -56,6 +56,7 @@ class CloroToolSpec(BaseToolSpec):
         api_key: str | None = None,
         country: str = "US",
         timeout: float = 180.0,
+        include_ai_overview: bool = False,
     ) -> None:
         """
         Initialize with parameters.
@@ -64,6 +65,8 @@ class CloroToolSpec(BaseToolSpec):
             api_key: cloro API key. Defaults to the CLORO_API_KEY environment variable.
             country: ISO 3166-1 alpha-2 country code for the search location.
             timeout: Request timeout in seconds. An AI answer can take 15 to 60 seconds.
+            include_ai_overview: Make google_search also return the Google AI Overview and its
+                sources, as the first Document. Costs 2 more credits per search.
 
         """
         api_key = api_key or os.environ.get("CLORO_API_KEY")
@@ -72,10 +75,13 @@ class CloroToolSpec(BaseToolSpec):
         self.api_key = api_key
         self.country = country
         self.timeout = timeout
+        self.include_ai_overview = include_ai_overview
 
     def google_search(self, query: str, max_results: int = 10, country: str | None = None) -> list[Document]:
         """
         Search Google and return the organic results of the first results page.
+
+        When the tool spec has include_ai_overview turned on, it also returns the Google AI Overview.
 
         Args:
             query: The search query.
@@ -83,19 +89,20 @@ class CloroToolSpec(BaseToolSpec):
             country: Optional ISO 3166-1 alpha-2 country code, for example "GB".
 
         Returns:
-            One Document per result. The text has the title, the URL and the snippet.
+            One Document per result. The text has the title, the URL and the snippet. With the AI
+            Overview turned on, the first Document is the AI Overview, followed by its sources.
 
         """
-        result = self._post(
-            "/v1/monitor/google",
-            {"query": query, "country": (country or self.country).upper()},
-        )
+        payload: dict[str, Any] = {"query": query, "country": (country or self.country).upper()}
+        if self.include_ai_overview:
+            payload["include"] = {"aioverview": True}
+        result = self._post("/v1/monitor/google", payload)
         organic = [
             item
             for item in result.get("organicResults") or []
             if isinstance(item, dict) and _is_direct_link(item.get("link"))
         ][:max_results]
-        return [
+        documents = [
             Document(
                 text=f"{item.get('title') or ''}\n{item['link']}\n{item.get('snippet') or ''}".strip(),
                 metadata={
@@ -106,6 +113,10 @@ class CloroToolSpec(BaseToolSpec):
             )
             for item in organic
         ]
+        overview = result.get("aioverview")
+        if self.include_ai_overview and isinstance(overview, dict) and overview.get("text"):
+            documents.insert(0, self._with_sources("google_ai_overview", query, overview["text"], overview))
+        return documents
 
     def google_ai_mode(self, prompt: str, country: str | None = None) -> list[Document]:
         """
@@ -178,6 +189,10 @@ class CloroToolSpec(BaseToolSpec):
             },
         )
         answer = result.get("markdown") or result.get("text") or ""
+        return [self._with_sources(engine, prompt, answer, result)]
+
+    @staticmethod
+    def _with_sources(engine: str, prompt: str, answer: str, result: dict[str, Any]) -> Document:
         sources: list[dict[str, Any]] = []
         for source in result.get("sources") or []:
             url = source.get("url") if isinstance(source, dict) else None
@@ -188,7 +203,7 @@ class CloroToolSpec(BaseToolSpec):
             text += "\n\nSources:\n" + "\n".join(
                 f"- {s['title']}: {s['url']}" if s["title"] else f"- {s['url']}" for s in sources
             )
-        return [Document(text=text, metadata={"engine": engine, "prompt": prompt, "sources": sources})]
+        return Document(text=text, metadata={"engine": engine, "prompt": prompt, "sources": sources})
 
     def _post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         try:
