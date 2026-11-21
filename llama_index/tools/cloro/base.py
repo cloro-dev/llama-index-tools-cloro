@@ -1,4 +1,4 @@
-"""cloro tool spec: live Google results and AI search engine answers."""
+"""cloro tool spec: live Google and Bing results and AI search engine answers."""
 
 import os
 from typing import Any
@@ -10,7 +10,7 @@ from llama_index.core.tools.tool_spec.base import BaseToolSpec
 CLORO_API_BASE = "https://api.cloro.dev"
 USER_AGENT = "llama-index-tools-cloro"
 
-# Bing AI Mode refuses a prompt longer than this after URL encoding.
+# Bing Search and Bing AI Mode refuse a query longer than this after URL encoding.
 BING_PROMPT_LIMIT = 3500
 
 
@@ -38,13 +38,14 @@ class CloroToolSpec(BaseToolSpec):
     """
     cloro tool spec.
 
-    Live Google search results with the optional Google AI Overview, and the answers that Google AI Mode, Bing AI Mode,
-    ChatGPT and Gemini give to a prompt, with the sources they cite. Each call
+    Live Google and Bing search results with the optional AI Overview, and the answers that Google AI Mode,
+    Bing AI Mode, ChatGPT and Gemini give to a prompt, with the sources they cite. Each call
     loads the live page for the country you choose and uses cloro credits.
     """
 
     spec_functions = [
         "google_search",
+        "bing_search",
         "google_ai_mode",
         "bing_ai_mode",
         "chatgpt",
@@ -65,8 +66,8 @@ class CloroToolSpec(BaseToolSpec):
             api_key: cloro API key. Defaults to the CLORO_API_KEY environment variable.
             country: ISO 3166-1 alpha-2 country code for the search location.
             timeout: Request timeout in seconds. An AI answer can take 15 to 60 seconds.
-            include_ai_overview: Make google_search also return the Google AI Overview and its
-                sources, as the first Document. Costs 2 more credits per search.
+            include_ai_overview: Make google_search and bing_search also return the AI Overview and
+                its sources, as the first Document. Costs 2 more credits per search.
 
         """
         api_key = api_key or os.environ.get("CLORO_API_KEY")
@@ -93,10 +94,38 @@ class CloroToolSpec(BaseToolSpec):
             Overview turned on, the first Document is the AI Overview, followed by its sources.
 
         """
+        return self._search("google_ai_overview", "/v1/monitor/google", query, max_results, country)
+
+    def bing_search(self, query: str, max_results: int = 10, country: str | None = None) -> list[Document]:
+        """
+        Search Bing and return the organic results of the first results page.
+
+        When the tool spec has include_ai_overview turned on, it also returns the Bing AI Overview.
+
+        Args:
+            query: The search query. At most 3,500 characters after URL encoding.
+            max_results: The maximum number of results to return.
+            country: Optional ISO 3166-1 alpha-2 country code, for example "GB". It sets the Bing market.
+
+        Returns:
+            One Document per result. The text has the title, the URL and the snippet. With the AI
+            Overview turned on, the first Document is the AI Overview, followed by its sources.
+
+        """
+        if _encoded_length(query) > BING_PROMPT_LIMIT:
+            raise ValueError(
+                "The query is too long for Bing Search: at most 3,500 characters after "
+                "URL encoding. Non-Latin scripts allow fewer characters."
+            )
+        return self._search("bing_ai_overview", "/v1/monitor/bing", query, max_results, country)
+
+    def _search(
+        self, overview_engine: str, path: str, query: str, max_results: int, country: str | None
+    ) -> list[Document]:
         payload: dict[str, Any] = {"query": query, "country": (country or self.country).upper()}
         if self.include_ai_overview:
             payload["include"] = {"aioverview": True}
-        result = self._post("/v1/monitor/google", payload)
+        result = self._post(path, payload)
         organic = [
             item
             for item in result.get("organicResults") or []
@@ -115,7 +144,7 @@ class CloroToolSpec(BaseToolSpec):
         ]
         overview = result.get("aioverview")
         if self.include_ai_overview and isinstance(overview, dict) and overview.get("text"):
-            documents.insert(0, self._with_sources("google_ai_overview", query, overview["text"], overview))
+            documents.insert(0, self._with_sources(overview_engine, query, overview["text"], overview))
         return documents
 
     def google_ai_mode(self, prompt: str, country: str | None = None) -> list[Document]:

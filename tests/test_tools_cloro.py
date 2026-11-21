@@ -40,7 +40,14 @@ ANSWER = {
 
 def test_class():
     assert BaseToolSpec in CloroToolSpec.__mro__
-    assert CloroToolSpec.spec_functions == ["google_search", "google_ai_mode", "bing_ai_mode", "chatgpt", "gemini"]
+    assert CloroToolSpec.spec_functions == [
+        "google_search",
+        "bing_search",
+        "google_ai_mode",
+        "bing_ai_mode",
+        "chatgpt",
+        "gemini",
+    ]
 
 
 def test_tool_list():
@@ -89,6 +96,34 @@ def test_google_search_with_ai_overview(post):
 def test_google_search_max_results(post):
     post.return_value = _response(200, GOOGLE)
     assert len(CloroToolSpec(api_key="k").google_search("q", max_results=1)) == 1
+
+
+@patch("llama_index.tools.cloro.base.httpx.post")
+def test_bing_search(post):
+    post.return_value = _response(200, GOOGLE)
+    docs = CloroToolSpec(api_key="k").bing_search("serp api", max_results=5, country="gb")
+
+    assert post.call_args.args[0] == "https://api.cloro.dev/v1/monitor/bing"
+    assert post.call_args.kwargs["json"] == {"query": "serp api", "country": "GB"}
+    assert [d.metadata["url"] for d in docs] == ["https://example.com/a", "https://example.org/b"]
+
+
+@patch("llama_index.tools.cloro.base.httpx.post")
+def test_bing_search_with_ai_overview(post):
+    post.return_value = _response(200, GOOGLE)
+    docs = CloroToolSpec(api_key="k", include_ai_overview=True).bing_search("q", max_results=1)
+
+    assert post.call_args.kwargs["json"] == {"query": "q", "country": "US", "include": {"aioverview": True}}
+    assert len(docs) == 2
+    assert docs[0].metadata["engine"] == "bing_ai_overview"
+    assert docs[1].metadata["url"] == "https://example.com/a"
+
+
+@patch("llama_index.tools.cloro.base.httpx.post")
+def test_bing_search_query_too_long(post):
+    with pytest.raises(ValueError, match="too long for Bing Search"):
+        CloroToolSpec(api_key="k").bing_search("中" * 600)
+    post.assert_not_called()
 
 
 @pytest.mark.parametrize(
