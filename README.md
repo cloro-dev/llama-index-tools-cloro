@@ -75,18 +75,23 @@ Each tool returns a list of `Document`. The text is what the agent reads:
   `metadata` has `title`, `url` and `position`. Results with an empty link or a Google redirect link are skipped.
   With the AI Overview turned on, the first Document is the AI Overview and its sources, with
   `metadata["engine"] == "google_ai_overview"` or `"bing_ai_overview"`.
+  With `include_ads=True`, the ads on the page are the last Documents. The text of an ad starts with `Ad:`, and
+  `metadata["engine"]` is `"google_ad"` or `"bing_ad"`. `metadata` also has `block_position`, `type`, `price` and
+  `store`, when the ad has them.
 - The AI answer tools: one Document. The text is the answer as Markdown, then a "Sources" list. `metadata` has
   `engine`, `prompt` and `sources` (a list of `title` and `url`).
 
 ### Parameters
 
-`CloroToolSpec(api_key=None, country="US", timeout=180.0, include_ai_overview=False)`
+`CloroToolSpec(api_key=None, country="US", timeout=180.0, include_ai_overview=False, include_ads=False)`
 
 - `api_key`: the cloro API key. Defaults to the `CLORO_API_KEY` environment variable.
 - `country`: ISO 3166-1 alpha-2 country code for the search location. Each tool also takes `country` per call.
 - `timeout`: request timeout in seconds. An AI answer can take 15 to 60 seconds.
 - `include_ai_overview`: make `google_search` and `bing_search` also return the AI Overview. It costs 2 more credits
   per search.
+- `include_ads`: make `google_search` and `bing_search` also return the ads on the page. The ads cost no more credits
+  and do not count towards `max_results`.
 
 ## Limits
 

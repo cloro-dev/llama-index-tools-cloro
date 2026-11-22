@@ -126,6 +126,66 @@ def test_bing_search_query_too_long(post):
     post.assert_not_called()
 
 
+ADS = [
+    {
+        "position": 1,
+        "blockPosition": "top",
+        "type": "RESULT",
+        "title": "Wok Sale",
+        "url": "https://shop.example/woks",
+        "page": 1,
+        "description": "Carbon steel woks.",
+    },
+    {
+        "position": 1,
+        "blockPosition": "rhs",
+        "type": "SHOPPING_CARD",
+        "title": "14 in Wok",
+        "url": "https://shop.example/wok-14",
+        "page": 1,
+        "price": {"value": 29, "currency": "$", "raw": "$29.00"},
+        "store": "Shop",
+    },
+    {},
+]
+WITH_ADS = {"success": True, "result": {**GOOGLE["result"], "ads": ADS}}
+
+
+@pytest.mark.parametrize("engine", ["google", "bing"])
+@patch("llama_index.tools.cloro.base.httpx.post")
+def test_search_with_ads(post, engine):
+    post.return_value = _response(200, WITH_ADS)
+    docs = getattr(CloroToolSpec(api_key="k", include_ads=True), f"{engine}_search")("wok", max_results=1)
+
+    assert post.call_args.kwargs["json"] == {"query": "wok", "country": "US"}
+    assert len(docs) == 4
+    assert docs[1].text == "Ad: Wok Sale\nhttps://shop.example/woks\nCarbon steel woks."
+    assert docs[1].metadata == {
+        "engine": f"{engine}_ad",
+        "title": "Wok Sale",
+        "url": "https://shop.example/woks",
+        "position": 1,
+        "block_position": "top",
+        "type": "RESULT",
+    }
+    assert docs[2].text == "Ad: 14 in Wok\nhttps://shop.example/wok-14\n$29.00\nShop"
+    assert docs[2].metadata["price"] == "$29.00"
+    assert docs[3].metadata == {"engine": f"{engine}_ad"}
+
+
+@patch("llama_index.tools.cloro.base.httpx.post")
+def test_search_ads_off_by_default(post):
+    post.return_value = _response(200, WITH_ADS)
+    docs = CloroToolSpec(api_key="k").bing_search("wok")
+    assert [d.metadata["url"] for d in docs] == ["https://example.com/a", "https://example.org/b"]
+
+
+@patch("llama_index.tools.cloro.base.httpx.post")
+def test_search_include_ads_without_ads(post):
+    post.return_value = _response(200, GOOGLE)
+    assert len(CloroToolSpec(api_key="k", include_ads=True).bing_search("wok")) == 2
+
+
 @pytest.mark.parametrize(
     ("method", "path", "engine"),
     [
