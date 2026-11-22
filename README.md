@@ -92,7 +92,7 @@ Each tool returns a list of `Document`. The text is what the agent reads:
 
 - Bing Search and Bing AI Mode accept a query of up to 3,500 characters after URL encoding. Non-Latin scripts allow
   fewer characters. `bing_search` and `bing_ai_mode` refuse a longer query before they send the request.
-- Bing Search returns one page of results. The country sets the Bing market. Bing Search and Bing AI Mode accept all
+- The Bing Search tool gets the first results page. The country sets the Bing market. Bing Search and Bing AI Mode accept all
   countries except CN, KR and RU.
 - Your plan sets how many requests can run at the same time. A request sent while all slots are busy gets a `429`
   (`CONCURRENCY_LIMIT_EXCEEDED`).
