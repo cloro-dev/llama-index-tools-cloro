@@ -58,6 +58,7 @@ class CloroToolSpec(BaseToolSpec):
         country: str = "US",
         timeout: float = 180.0,
         include_ai_overview: bool = False,
+        include_ads: bool = False,
     ) -> None:
         """
         Initialize with parameters.
@@ -68,6 +69,8 @@ class CloroToolSpec(BaseToolSpec):
             timeout: Request timeout in seconds. An AI answer can take 15 to 60 seconds.
             include_ai_overview: Make google_search and bing_search also return the AI Overview and
                 its sources, as the first Document. Costs 2 more credits per search.
+            include_ads: Make google_search and bing_search also return the ads on the page, after the
+                organic results. Costs no more credits.
 
         """
         api_key = api_key or os.environ.get("CLORO_API_KEY")
@@ -77,12 +80,14 @@ class CloroToolSpec(BaseToolSpec):
         self.country = country
         self.timeout = timeout
         self.include_ai_overview = include_ai_overview
+        self.include_ads = include_ads
 
     def google_search(self, query: str, max_results: int = 10, country: str | None = None) -> list[Document]:
         """
         Search Google and return the organic results of the first results page.
 
         When the tool spec has include_ai_overview turned on, it also returns the Google AI Overview.
+        When it has include_ads turned on, it also returns the ads on the page.
 
         Args:
             query: The search query.
@@ -92,15 +97,17 @@ class CloroToolSpec(BaseToolSpec):
         Returns:
             One Document per result. The text has the title, the URL and the snippet. With the AI
             Overview turned on, the first Document is the AI Overview, followed by its sources.
+            With the ads turned on, one more Document per ad. Its text starts with "Ad:".
 
         """
-        return self._search("google_ai_overview", "/v1/monitor/google", query, max_results, country)
+        return self._search("google", "/v1/monitor/google", query, max_results, country)
 
     def bing_search(self, query: str, max_results: int = 10, country: str | None = None) -> list[Document]:
         """
         Search Bing and return the organic results of the first results page.
 
         When the tool spec has include_ai_overview turned on, it also returns the Bing AI Overview.
+        When it has include_ads turned on, it also returns the ads on the page.
 
         Args:
             query: The search query. At most 3,500 characters after URL encoding.
@@ -110,6 +117,7 @@ class CloroToolSpec(BaseToolSpec):
         Returns:
             One Document per result. The text has the title, the URL and the snippet. With the AI
             Overview turned on, the first Document is the AI Overview, followed by its sources.
+            With the ads turned on, one more Document per ad. Its text starts with "Ad:".
 
         """
         if _encoded_length(query) > BING_PROMPT_LIMIT:
@@ -117,11 +125,9 @@ class CloroToolSpec(BaseToolSpec):
                 "The query is too long for Bing Search: at most 3,500 characters after "
                 "URL encoding. Non-Latin scripts allow fewer characters."
             )
-        return self._search("bing_ai_overview", "/v1/monitor/bing", query, max_results, country)
+        return self._search("bing", "/v1/monitor/bing", query, max_results, country)
 
-    def _search(
-        self, overview_engine: str, path: str, query: str, max_results: int, country: str | None
-    ) -> list[Document]:
+    def _search(self, engine: str, path: str, query: str, max_results: int, country: str | None) -> list[Document]:
         payload: dict[str, Any] = {"query": query, "country": (country or self.country).upper()}
         if self.include_ai_overview:
             payload["include"] = {"aioverview": True}
@@ -142,10 +148,32 @@ class CloroToolSpec(BaseToolSpec):
             )
             for item in organic
         ]
+        if self.include_ads:
+            documents += [
+                self._ad_document(f"{engine}_ad", ad) for ad in result.get("ads") or [] if isinstance(ad, dict)
+            ]
         overview = result.get("aioverview")
         if self.include_ai_overview and isinstance(overview, dict) and overview.get("text"):
-            documents.insert(0, self._with_sources(overview_engine, query, overview["text"], overview))
+            documents.insert(0, self._with_sources(f"{engine}_ai_overview", query, overview["text"], overview))
         return documents
+
+    @staticmethod
+    def _ad_document(engine: str, ad: dict[str, Any]) -> Document:
+        # Every field of an ad can be absent.
+        price = ad.get("price")
+        metadata = {
+            "title": ad.get("title"),
+            "url": ad.get("url") if _is_direct_link(ad.get("url")) else None,
+            "position": ad.get("position"),
+            "block_position": ad.get("blockPosition"),
+            "type": ad.get("type"),
+            "price": price.get("raw") if isinstance(price, dict) else None,
+            "store": ad.get("store"),
+        }
+        metadata = {key: value for key, value in metadata.items() if value}
+        lines = [f"Ad: {metadata.get('title', '')}".strip(), metadata.get("url"), ad.get("description")]
+        lines += [metadata.get("price"), metadata.get("store")]
+        return Document(text="\n".join(line for line in lines if line), metadata={"engine": engine, **metadata})
 
     def google_ai_mode(self, prompt: str, country: str | None = None) -> list[Document]:
         """
