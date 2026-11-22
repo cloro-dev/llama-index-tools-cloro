@@ -74,7 +74,7 @@ Each tool returns a list of `Document`. The text is what the agent reads:
 - `google_search` and `bing_search`: one Document per result. The text is the title, the URL and the snippet.
   `metadata` has `title`, `url` and `position`. Results with an empty link or a Google redirect link are skipped.
   With the AI Overview turned on, the first Document is the AI Overview and its sources, with
-  `metadata["engine"] == "google_ai_overview"` or `"bing_ai_overview"`.
+  `metadata["engine"] == "google_ai_overview"` or `"bing_ai_overview"`. The tools do not return the ads.
 - The AI answer tools: one Document. The text is the answer as Markdown, then a "Sources" list. `metadata` has
   `engine`, `prompt` and `sources` (a list of `title` and `url`).
 
